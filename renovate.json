@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Refresh paired Docker Hardened Image digests together",
+      "groupName": "Docker Hardened Image digests",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^dhi\\.io\\//"],
+      "matchUpdateTypes": ["digest"],
+      "schedule": ["before 6am on monday"]
+    }
+  ]
+}

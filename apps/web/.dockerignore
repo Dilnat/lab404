@@ -1,4 +1,6 @@
-__pycache__/
-*.pyc
-.venv/
-
+.git
+.pytest_cache
+.venv
+__pycache__
+*.py[cod]
+venv
