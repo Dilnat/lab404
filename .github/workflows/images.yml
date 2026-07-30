@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   TRIVY_VERSION: v0.72.0
@@ -36,6 +35,9 @@ jobs:
     name: Build ${{ matrix.service }} for ${{ matrix.target.arch }}
     needs: dockerfile-lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -101,6 +103,9 @@ jobs:
     name: Scan ${{ matrix.service }} for ${{ matrix.arch }} with Trivy
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -166,6 +171,9 @@ jobs:
     name: Audit ${{ matrix.service }} for ${{ matrix.arch }} with Dockle
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -222,10 +230,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  merge:
+  publish:
     name: Publish ${{ matrix.service }} index
     needs: [vulnerability-scan, image-lint]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: write
     strategy:
       matrix:
         service: [web, votes]
@@ -257,11 +268,147 @@ jobs:
           IMAGE: ${{ steps.image.outputs.name }}
         run: |
           commit_tag="sha-${GITHUB_SHA::12}"
-          tags=(--tag "${IMAGE}:${commit_tag}")
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            tags+=(--tag "${IMAGE}:latest")
-          fi
           docker buildx imagetools create \
-            "${tags[@]}" \
+            --tag "${IMAGE}:${commit_tag}" \
             $(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools inspect "${IMAGE}:${commit_tag}"
+
+      - name: Export index digest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          mkdir -p /tmp/index-digest
+          commit_tag="sha-${GITHUB_SHA::12}"
+          digest="$(docker buildx imagetools inspect \
+            "${IMAGE}:${commit_tag}" \
+            --format '{{.Manifest.Digest}}')"
+          touch "/tmp/index-digest/${digest#sha256:}"
+
+      - name: Upload index digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: index-digest-${{ matrix.service }}
+          path: /tmp/index-digest/*
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign and verify ${{ matrix.service }} image
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, votes]
+
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: index-digest-${{ matrix.service }}
+          path: /tmp/index-digest
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image
+        name: Set image name
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "name=ghcr.io/${OWNER,,}/lab404-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign index and platform images
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          digest="$(basename /tmp/index-digest/*)"
+          cosign sign --yes --recursive "${IMAGE}@sha256:${digest}"
+
+      - name: Verify signing identity
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/images.yml@${GITHUB_REF}"
+          index_digest="$(basename /tmp/index-digest/*)"
+          images=("${IMAGE}@sha256:${index_digest}")
+          mapfile -t platform_digests < <(
+            docker buildx imagetools inspect \
+              "${IMAGE}@sha256:${index_digest}" \
+              --raw |
+              jq --raw-output '
+                .manifests[]
+                | select(
+                    .platform.os == "linux"
+                    and (
+                      .platform.architecture == "amd64"
+                      or .platform.architecture == "arm64"
+                    )
+                  )
+                | .digest
+              '
+          )
+          test "${#platform_digests[@]}" -eq 2
+          for platform_digest in "${platform_digests[@]}"; do
+            images+=("${IMAGE}@${platform_digest}")
+          done
+          cosign verify \
+            --certificate-identity "${identity}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${images[@]}"
+
+  promote:
+    name: Promote ${{ matrix.service }} image
+    if: github.ref == 'refs/heads/main'
+    needs: sign
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      packages: write
+    strategy:
+      matrix:
+        service: [web, votes]
+
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: index-digest-${{ matrix.service }}
+          path: /tmp/index-digest
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image
+        name: Set image name
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "name=ghcr.io/${OWNER,,}/lab404-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote signed digest to latest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          digest="sha256:$(basename /tmp/index-digest/*)"
+          docker buildx imagetools create \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}@${digest}"
+          promoted_digest="$(docker buildx imagetools inspect \
+            "${IMAGE}:latest" \
+            --format '{{.Manifest.Digest}}')"
+          test "${promoted_digest}" = "${digest}"
