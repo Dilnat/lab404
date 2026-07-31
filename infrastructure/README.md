@@ -44,6 +44,10 @@ kubectl wait --namespace envoy-gateway-system \
 kubectl wait --namespace observability \
   --for=condition=Available deployment/otel-collector \
   --timeout=5m
+kubectl wait --namespace kyverno \
+  --for=condition=Available deployment \
+  --all \
+  --timeout=5m
 ```
 
 Kustomize renders the pinned Helm charts as ordinary Kubernetes manifests. It
@@ -61,17 +65,30 @@ kubectl apply -k infrastructure/configuration
 ## Deploy the application
 
 Update the two image names in
-`kubernetes/overlays/local/kustomization.yaml`, then inspect and apply the
-rendered resources.
+`kubernetes/overlays/local/kustomization.yaml` and set the expected GitHub
+Actions identity in `verify-application-signatures.yaml`, then inspect and
+apply the rendered resources.
 
 ```sh
-kubectl kustomize kubernetes/overlays/local
+kustomize build kubernetes/overlays/local
 kubectl apply -k kubernetes/overlays/local
 kubectl wait --namespace lab404 \
   --for=condition=Available deployment \
   --all \
   --timeout=5m
 ```
+
+Confirm that admission rejects mutable images:
+
+```sh
+kubectl run mutable-image-test \
+  --namespace lab404 \
+  --image nginx:latest \
+  --restart Never \
+  --dry-run server
+```
+
+The command must fail with the `require-image-digests` policy message.
 
 Find the application address:
 

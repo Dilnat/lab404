@@ -2,6 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+  - require-image-digests.yaml
+  - verify-application-signatures.yaml
 images:
   - name: ghcr.io/leofvo/lab404-web
     newName: ghcr.io/leofvo/lab404-web
@@ -9,3 +11,10 @@ images:
   - name: ghcr.io/leofvo/lab404-votes
     newName: ghcr.io/leofvo/lab404-votes
     digest: sha256:3ecd013ab79dcc6bd804c0e807eb39865459ca937d25e83ce461205909ddd45a
+  # Intentionally vulnerable to CVE-2026-42533 for the runtime-security exercise.
+  - name: nginx
+    newName: docker.io/library/nginx
+    digest: sha256:0d3b80406a13a767339fbe2f41406d6c7da727ab89cf8fae399e81f780f814d1
+  - name: valkey/valkey
+    newName: docker.io/valkey/valkey
+    digest: sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
