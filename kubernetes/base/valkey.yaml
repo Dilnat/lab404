@@ -1,13 +1,19 @@
-apiVersion: v1
-kind: Secret
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
 metadata:
   name: valkey
-  labels:
-    app.kubernetes.io/name: valkey
-    app.kubernetes.io/part-of: lab404
-type: Opaque
-stringData:
-  password: insecure-lab-password
+spec:
+  encryptedData:
+    password: AgCznet8a3j8aA2OU5XjfJgpcVkNYf+10/VqaXwFE9RKedetb7Q7R1SoH32H1JmsC/T/PMeAJ3g5766dsBEelaEYsssbvQWrc52R/iwSf0BxbPAh2R6joHoQQTXUbGrJO9+BYj1vvwM6cpTCsILiKW0KoH1rdItcBb1wVcn/LR0sjYJkOMjIl4KJsIi1H4VMOnYX4RA/q3CsAt8tvA916WXzVKz9HFh24FsCcxiji/3z8OSCzHAdDBRoTp7Dl6Eieeu8rX5MznYLBHli9MiSiN75xo7dBfO8rQCH6Ea3hJJjmyJkHcUN8Xk/Zn4+uaCm8aFC/ODAuGt/RsZHIvHvxyjPGfWyIN7reEf6OkQICISINJgyno7WEEJR+cnTOmYN2fwSpK30xrgkudKlMkTas9FccT3USROz37bZJ21hL227yVR2qa8IbaYJIFdodiv3y+XkDN1pefi1qLEp+T+Jj17j5z6e4MLb+FoytFDU/OW3XJ9UVaO5Yq96FhxwML0/avmK3IF8bvJAHFYLhxh6vaApufOhhI15cMOgETrAn6GtEWCvbParzeHw8oSeRDsGmFXwk9TIQzwkEoioZtGbr8YQCQySUOtUPBhyqytnO3vQcNTPpk0HwIh9R3NiGMB8q0fbfm5kN9pq20RVe79jfwZVxgqk0FCcstA6nvdPq4yka4DNk4PQ1/Z9F+B0ybLhI0VC0F0EySckTh+3nbR9zmqfY1lWn5b2dNSOQZP7m5SaCKtAkK7vqyL6QOaKd8g=
+  template:
+    metadata:
+      name: valkey
+      labels:
+        app.kubernetes.io/name: valkey
+        app.kubernetes.io/part-of: lab404
+      annotations:
+        sealedsecrets.bitnami.com/managed: "true"
+    type: Opaque
 ---
 apiVersion: apps/v1
 kind: Deployment

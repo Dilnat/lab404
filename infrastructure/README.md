@@ -9,8 +9,8 @@ Mise tasks.
 - Docker-compatible runtime
 - mise
 
-The root `mise.toml` installs the pinned Kind, kubectl, Helm, and Kustomize
-versions used by the lab.
+The root `mise.toml` installs the pinned CLI tools required by the current
+checkpoint.
 
 Use the standalone `kustomize` binary. Older versions embedded in `kubectl`
 are not compatible with Helm 4.
@@ -47,6 +47,9 @@ kubectl wait --namespace observability \
 kubectl wait --namespace kyverno \
   --for=condition=Available deployment \
   --all \
+  --timeout=5m
+kubectl wait --namespace sealed-secrets \
+  --for=condition=Available deployment/sealed-secrets-controller \
   --timeout=5m
 ```
 
