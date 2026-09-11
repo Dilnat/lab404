@@ -51,6 +51,9 @@ kubectl wait --namespace kyverno \
 kubectl wait --namespace sealed-secrets \
   --for=condition=Available deployment/sealed-secrets-controller \
   --timeout=5m
+kubectl rollout status daemonset/falco \
+  --namespace falco \
+  --timeout=5m
 ```
 
 Kustomize renders the pinned Helm charts as ordinary Kubernetes manifests. It
@@ -105,3 +108,26 @@ Confirm that both services export telemetry:
 ```sh
 kubectl logs --namespace observability deployment/otel-collector
 ```
+
+## Verify runtime detection
+
+Confirm that Falco runs on every node, including the tainted stateful worker:
+
+```sh
+kubectl get daemonset,pods --namespace falco -o wide
+```
+
+Open a TTY-backed shell in Valkey, then inspect the Falco alerts:
+
+```sh
+kubectl exec --namespace lab404 -it deployment/valkey -- \
+  sh -c 'echo falco-runtime-test'
+kubectl logs --namespace falco \
+  --selector app.kubernetes.io/name=falco \
+  --since=1m \
+  --prefix \
+  --max-log-requests=10
+```
+
+The node-local sensor must emit the `Terminal shell in container` rule with
+the `lab404` namespace, Valkey Pod, container, image, user, and command fields.
