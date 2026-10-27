@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
+WORKDIR /src
 RUN python3 -m venv /opt/venv
 COPY requirements.txt .
 RUN /opt/venv/bin/pip install --require-hashes --no-deps --only-binary=:all: \
