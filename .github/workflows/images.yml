@@ -252,25 +252,53 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: echo "name=ghcr.io/${OWNER,,}/lab404-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
 
-      - name: Create multi-platform index
+      - id: index
+        name: Create multi-platform index
         working-directory: /tmp/digests
         env:
           IMAGE: ${{ steps.image.outputs.name }}
         run: |
+          tag="${IMAGE}:sha-${GITHUB_SHA}"
+          if docker buildx imagetools inspect "${tag}" >/dev/null 2>&1; then
+            echo "::error::${tag} already exists; commit tags are immutable."
+            exit 1
+          fi
           refs=()
           for digest in *; do
             refs+=("${IMAGE}@sha256:${digest}")
           done
-          docker buildx imagetools create --tag "${IMAGE}:latest" "${refs[@]}"
+          docker buildx imagetools create --tag "${tag}" "${refs[@]}"
+          digest="$(docker buildx imagetools inspect "${tag}" --format '{{ .Manifest.Digest }}')"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "ref=${IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify index platforms
+        env:
+          REF: ${{ steps.index.outputs.ref }}
+        run: |
+          platforms="$(docker buildx imagetools inspect --raw "${REF}" |
+            jq -r '[.manifests[].platform
+              | select(.os != "unknown")
+              | "\(.os)/\(.architecture)"] | sort | join(" ")')"
+          echo "Platforms: ${platforms}"
+          test "${platforms}" = "linux/amd64 linux/arm64"
+
+      - name: Move latest
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          REF: ${{ steps.index.outputs.ref }}
+        run: docker buildx imagetools create --tag "${IMAGE}:latest" "${REF}"
 
       - name: Record index
         env:
-          IMAGE: ${{ steps.image.outputs.name }}
+          TAG: ${{ steps.index.outputs.tag }}
+          REF: ${{ steps.index.outputs.ref }}
         run: |
           mkdir -p evidence
-          docker buildx imagetools inspect "${IMAGE}:latest" | tee evidence/index.txt
-          digest="$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{ .Manifest.Digest }}')"
-          echo "${IMAGE}@${digest}" > evidence/index-ref.txt
+          docker buildx imagetools inspect "${REF}" | tee evidence/index.txt
+          echo "${REF}" > evidence/index-ref.txt
+          echo "${TAG}" > evidence/index-tag.txt
 
       - name: Upload index evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -295,10 +323,10 @@ jobs:
           {
             echo "## Image evidence"
             echo
-            echo "| Service | Published index |"
-            echo "| --- | --- |"
+            echo "| Service | Commit tag | Index digest |"
+            echo "| --- | --- | --- |"
             for service in web votes; do
-              echo "| ${service} | \`$(cat "index-${service}/index-ref.txt")\` |"
+              echo "| ${service} | \`$(cat "index-${service}/index-tag.txt")\` | \`$(cat "index-${service}/index-ref.txt")\` |"
             done
             echo
             echo "| Scan | Image |"
