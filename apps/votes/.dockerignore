@@ -1,2 +1,6 @@
-votes
-
+# Allowlist: send only what the image needs to the build context.
+*
+!go.mod
+!go.sum
+!*.go
+*_test.go

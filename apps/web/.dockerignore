@@ -1,4 +1,5 @@
-__pycache__/
-*.pyc
-.venv/
-
+# Allowlist: send only what the image needs to the build context.
+*
+!app.py
+!requirements.txt
+!templates/
