@@ -332,6 +332,13 @@ jobs:
         name: Resolve published index digest
         run: echo "ref=$(cat index/index-ref.txt)" >> "$GITHUB_OUTPUT"
 
+      - name: Sign index and platform images
+        env:
+          REF: ${{ steps.index.outputs.ref }}
+        run: |
+          [[ "${REF}" =~ ^ghcr\.io/[^@]+@sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes --recursive "${REF}"
+
   promote:
     name: Promote ${{ matrix.service }} to latest
     if: github.ref == 'refs/heads/main'
