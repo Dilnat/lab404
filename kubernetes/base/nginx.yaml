@@ -44,9 +44,12 @@ spec:
               mountPath: /run
       volumes:
         - name: cache
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 64Mi
         - name: run
-          emptyDir: {}
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
 ---
 apiVersion: v1
 kind: Service
