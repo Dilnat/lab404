@@ -1,0 +1,24 @@
+driver:
+  kind: modern_ebpf
+  modernEbpf:
+    leastPrivileged: true
+
+tty: true
+
+falco:
+  json_output: true
+  stdout_output:
+    enabled: true
+  syslog_output:
+    enabled: false
+
+falcoctl:
+  artifact:
+    follow:
+      enabled: false
+  config:
+    artifact:
+      install:
+        refs:
+          - falco-rules:5.2.0
+          - ghcr.io/falcosecurity/plugins/plugin/container:0.7.6
