@@ -1,0 +1,33 @@
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedValidatingPolicy
+metadata:
+  name: require-image-digests
+  namespace: lab404
+spec:
+  validationActions:
+    - Audit
+  failurePolicy: Ignore
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "pods/ephemeralcontainers"]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers
+        + object.spec.?initContainers.orValue([])
+        + object.spec.?ephemeralContainers.orValue([])
+    - name: mutable
+      expression: >-
+        variables.containers
+        .filter(c, !parseImageReference(c.image).containsDigest())
+        .map(c, c.name + '=' + c.image)
+  validations:
+    - expression: size(variables.mutable) == 0
+      messageExpression: >-
+        'images must be pinned by sha256 digest: ' + variables.mutable.join(', ')
