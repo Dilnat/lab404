@@ -5,8 +5,8 @@ metadata:
   namespace: lab404
 spec:
   validationActions:
-    - Audit
-  failurePolicy: Ignore
+    - Deny
+  failurePolicy: Fail
   evaluation:
     background:
       enabled: true
