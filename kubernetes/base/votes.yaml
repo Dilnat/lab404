@@ -29,6 +29,11 @@ spec:
       containers:
         - name: votes
           image: ghcr.io/leofvo/lab404-votes:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           imagePullPolicy: Always
           env:
             - name: VALKEY_ADDR
