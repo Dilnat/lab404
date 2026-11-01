@@ -1,0 +1,45 @@
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-application-signatures
+spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 15
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: lab404
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: ghcr.io/dilnat/lab404-web
+    - glob: ghcr.io/dilnat/lab404-web:*
+    - glob: ghcr.io/dilnat/lab404-web@*
+    - glob: ghcr.io/dilnat/lab404-votes
+    - glob: ghcr.io/dilnat/lab404-votes:*
+    - glob: ghcr.io/dilnat/lab404-votes@*
+  validationConfigurations:
+    mutateDigest: false
+    verifyDigest: true
+    required: true
+  attestors:
+    - name: github
+      cosign:
+        keyless:
+          identities:
+            - subject: https://github.com/Dilnat/lab404/.github/workflows/images.yml@refs/heads/main
+              issuer: https://token.actions.githubusercontent.com
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.github])).all(e, e > 0)
+      message: >-
+        Application images must be signed by
+        Dilnat/lab404/.github/workflows/images.yml@refs/heads/main.
