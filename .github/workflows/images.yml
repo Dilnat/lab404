@@ -130,6 +130,7 @@ jobs:
       - name: Generate SBOM and vulnerability report
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
+          PLATFORM: linux/${{ matrix.arch }}
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -138,15 +139,14 @@ jobs:
             docker run --rm \
               -e TRIVY_USERNAME -e TRIVY_PASSWORD \
               -v "$PWD/cache:/root/.cache" -v "$PWD/evidence:/evidence" \
-              "${TRIVY_IMAGE}" "$@"
+              "${TRIVY_IMAGE}" image --image-src remote --platform "${PLATFORM}" "$@"
           }
-          trivy image --image-src remote --format cyclonedx \
-            --output /evidence/sbom.cdx.json "${IMAGE}"
-          trivy image --image-src remote --skip-db-update --scanners vuln \
-            --format json --output /evidence/vulnerabilities.json "${IMAGE}"
-          trivy image --image-src remote --skip-db-update --scanners vuln \
-            --format table "${IMAGE}" | tee evidence/vulnerabilities.txt
-          echo "${IMAGE}" > evidence/image.txt
+          trivy --scanners vuln --format json \
+            --output /evidence/vulnerabilities.json "${IMAGE}"
+          trivy --skip-db-update --scanners vuln --format table \
+            "${IMAGE}" | tee evidence/vulnerabilities.txt
+          trivy --format cyclonedx --output /evidence/sbom.cdx.json "${IMAGE}"
+          echo "${IMAGE} (${PLATFORM})" > evidence/image.txt
 
       - name: Upload Trivy evidence
         if: always()
@@ -159,14 +159,15 @@ jobs:
       - name: Enforce vulnerability threshold
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
+          PLATFORM: linux/${{ matrix.arch }}
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm \
             -e TRIVY_USERNAME -e TRIVY_PASSWORD \
             -v "$PWD/cache:/root/.cache" \
-            "${TRIVY_IMAGE}" image --image-src remote --skip-db-update \
-            --scanners vuln --severity CRITICAL --ignore-unfixed \
+            "${TRIVY_IMAGE}" image --image-src remote --platform "${PLATFORM}" \
+            --skip-db-update --scanners vuln --severity CRITICAL --ignore-unfixed \
             --exit-code 1 "${IMAGE}"
 
   dockle:
@@ -196,21 +197,31 @@ jobs:
           digest="$(ls /tmp/digests)"
           echo "ref=ghcr.io/${OWNER,,}/lab404-${{ matrix.service }}@sha256:${digest}" >> "$GITHUB_OUTPUT"
 
-      - name: Run Dockle
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Export platform image
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
-          DOCKLE_USERNAME: ${{ github.actor }}
-          DOCKLE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p scan
+          docker pull --platform "linux/${{ matrix.arch }}" "${IMAGE}"
+          docker save --output scan/image.tar "${IMAGE}"
+
+      - name: Run Dockle
         run: |
           mkdir -p evidence
           dockle() {
             docker run --rm \
-              -e DOCKLE_USERNAME -e DOCKLE_PASSWORD \
-              -v "$PWD/evidence:/evidence" \
-              "${DOCKLE_IMAGE}" --accept-key=--access-logfile "$@"
+              -v "$PWD/scan:/scan:ro" -v "$PWD/evidence:/evidence" \
+              "${DOCKLE_IMAGE}" --accept-key=--access-logfile \
+              --input /scan/image.tar "$@"
           }
-          dockle --format json --output /evidence/dockle.json "${IMAGE}"
-          dockle --exit-code 1 --exit-level warn "${IMAGE}"
+          dockle --format json --output /evidence/dockle.json
+          dockle --exit-code 1 --exit-level warn
 
       - name: Upload Dockle evidence
         if: always()
@@ -338,6 +349,37 @@ jobs:
         run: |
           [[ "${REF}" =~ ^ghcr\.io/[^@]+@sha256:[0-9a-f]{64}$ ]]
           cosign sign --yes --recursive "${REF}"
+
+      - name: Verify index and platform signatures
+        env:
+          REF: ${{ steps.index.outputs.ref }}
+        run: |
+          identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/images.yml@${GITHUB_REF}"
+          image="${REF%@*}"
+          mapfile -t children < <(
+            docker buildx imagetools inspect --raw "${REF}" |
+              jq -r '.manifests[]
+                | select(.platform.os == "linux"
+                    and (.platform.architecture == "amd64" or .platform.architecture == "arm64"))
+                | .digest'
+          )
+          test "${#children[@]}" -eq 2
+          mkdir -p signature
+          echo "${identity}" > signature/identity.txt
+          for ref in "${REF}" "${children[@]/#/${image}@}"; do
+            echo "Verifying ${ref}"
+            cosign verify \
+              --certificate-identity "${identity}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "${ref}" > "signature/${ref##*:}.json"
+          done
+
+      - name: Upload signature evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signature-${{ matrix.service }}
+          path: signature/
+          if-no-files-found: error
 
   promote:
     name: Promote ${{ matrix.service }} to latest
