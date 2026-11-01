@@ -16,7 +16,7 @@ spec:
       - apiGroups: [""]
         apiVersions: ["v1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["pods"]
+        resources: ["pods", "pods/ephemeralcontainers"]
   matchImageReferences:
     - glob: ghcr.io/dilnat/lab404-web
     - glob: ghcr.io/dilnat/lab404-web:*
@@ -28,6 +28,12 @@ spec:
     mutateDigest: false
     verifyDigest: true
     required: true
+  images:
+    - name: all
+      expression: >-
+        object.spec.containers.map(c, c.image)
+        + object.spec.?initContainers.orValue([]).map(c, c.image)
+        + object.spec.?ephemeralContainers.orValue([]).map(c, c.image)
   attestors:
     - name: github
       cosign:
@@ -39,7 +45,7 @@ spec:
           url: https://rekor.sigstore.dev
   validations:
     - expression: >-
-        images.containers.map(image, verifyImageSignatures(image, [attestors.github])).all(e, e > 0)
+        images.all.map(image, verifyImageSignatures(image, [attestors.github])).all(e, e > 0)
       message: >-
         Application images must be signed by
         Dilnat/lab404/.github/workflows/images.yml@refs/heads/main.
